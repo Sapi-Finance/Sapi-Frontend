@@ -51,6 +51,9 @@ const API_BASE = "http://127.0.0.1:8000";
 const FREELANCER_WALLET =
   "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C85228] focus-visible:ring-2 focus-visible:ring-[#C85228]";
+
 const DEFAULT_LINE_ITEMS: LineItem[] = [
   {
     description: "Website Redesign",
@@ -158,6 +161,7 @@ function PublicPayContent({
   const [copiedMemo, setCopiedMemo] = useState(false);
   const [copiedWallet, setCopiedWallet] = useState(false);
   const [copiedAccount, setCopiedAccount] = useState(false);
+  const [copyAnnouncement, setCopyAnnouncement] = useState("");
 
   // Stellar Verification State
   const [isVerifyingStellar, setIsVerifyingStellar] = useState(false);
@@ -369,11 +373,19 @@ function PublicPayContent({
     }, 1800);
   };
 
-  const copyToClipboard = (text: string, setter: (val: boolean) => void) => {
+  const copyToClipboard = (
+    text: string,
+    setter: (val: boolean) => void,
+    announcement: string
+  ) => {
     if (typeof window !== "undefined") {
       navigator.clipboard.writeText(text);
       setter(true);
-      setTimeout(() => setter(false), 2000);
+      setCopyAnnouncement(announcement);
+      setTimeout(() => {
+        setter(false);
+        setCopyAnnouncement((prev) => (prev === announcement ? "" : prev));
+      }, 2000);
     }
   };
 
@@ -411,6 +423,10 @@ function PublicPayContent({
 
   return (
     <div>
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {copyAnnouncement}
+      </span>
+
       {/* Top Action Bar */}
       <div className="flex items-center justify-between pb-6 mb-6 border-b border-[#EAE8E4]">
         {/* Left: Invoice Number + Dynamic Status Pill */}
@@ -425,9 +441,9 @@ function PublicPayContent({
         <button
           type="button"
           onClick={() => window.print()}
-          className="border border-[#EAE8E4] text-gray-700 bg-white hover:bg-[#FAF9F6] px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 shadow-2xs"
+          className={`border border-[#EAE8E4] text-gray-700 bg-white hover:bg-[#FAF9F6] px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 shadow-2xs ${FOCUS_RING}`}
         >
-          <Download className="w-3.5 h-3.5 text-gray-500" />
+          <Download aria-hidden="true" className="w-3.5 h-3.5 text-gray-500" />
           <span>Download Invoice</span>
         </button>
       </div>
@@ -588,14 +604,20 @@ function PublicPayContent({
               <span className="font-bold text-gray-900 font-mono">0123456789</span>
               <button
                 type="button"
-                onClick={() => copyToClipboard("0123456789", setCopiedAccount)}
-                className="text-gray-400 hover:text-gray-600"
-                title="Copy account number"
+                aria-label="Copy bank account number"
+                onClick={() =>
+                  copyToClipboard(
+                    "0123456789",
+                    setCopiedAccount,
+                    "Bank account number copied to clipboard"
+                  )
+                }
+                className={`p-1 rounded text-gray-400 hover:text-gray-600 ${FOCUS_RING}`}
               >
                 {copiedAccount ? (
-                  <Check className="w-3 h-3 text-emerald-600" />
+                  <Check aria-hidden="true" className="w-3 h-3 text-emerald-600" />
                 ) : (
-                  <Copy className="w-3 h-3" />
+                  <Copy aria-hidden="true" className="w-3 h-3" />
                 )}
               </button>
             </div>
@@ -636,7 +658,7 @@ function PublicPayContent({
                   }
                 }}
                 disabled={isConnectingFreighter}
-                className="inline-flex items-center gap-1 text-[11px] text-[#C85228] font-semibold hover:underline cursor-pointer"
+                className={`inline-flex items-center gap-1 rounded px-1 text-[11px] text-[#C85228] font-semibold hover:underline cursor-pointer ${FOCUS_RING}`}
               >
                 <Wallet className="w-3 h-3" />
                 <span>{isConnectingFreighter ? "Connecting..." : "Connect Freighter"}</span>
@@ -650,14 +672,20 @@ function PublicPayContent({
                 <span>Freelancer Wallet Address</span>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard(FREELANCER_WALLET, setCopiedWallet)}
-                  className="text-gray-500 hover:text-gray-800"
-                  title="Copy wallet"
+                  aria-label="Copy freelancer wallet address"
+                  onClick={() =>
+                    copyToClipboard(
+                      FREELANCER_WALLET,
+                      setCopiedWallet,
+                      "Freelancer wallet address copied to clipboard"
+                    )
+                  }
+                  className={`p-1 rounded text-gray-500 hover:text-gray-800 ${FOCUS_RING}`}
                 >
                   {copiedWallet ? (
-                    <Check className="w-3 h-3 text-emerald-600" />
+                    <Check aria-hidden="true" className="w-3 h-3 text-emerald-600" />
                   ) : (
-                    <Copy className="w-3 h-3" />
+                    <Copy aria-hidden="true" className="w-3 h-3" />
                   )}
                 </button>
               </div>
@@ -671,19 +699,20 @@ function PublicPayContent({
                 <span className="font-medium text-[#C85228]">Required Memo (Strict)</span>
                 <button
                   type="button"
+                  aria-label="Copy required Stellar memo"
                   onClick={() =>
                     copyToClipboard(
                       invoice.stellar_memo || `SAPI-${invoice.invoice_number}`,
-                      setCopiedMemo
+                      setCopiedMemo,
+                      "Required Stellar memo copied to clipboard"
                     )
                   }
-                  className="text-gray-500 hover:text-gray-800"
-                  title="Copy memo"
+                  className={`p-1 rounded text-gray-500 hover:text-gray-800 ${FOCUS_RING}`}
                 >
                   {copiedMemo ? (
-                    <Check className="w-3 h-3 text-emerald-600" />
+                    <Check aria-hidden="true" className="w-3 h-3 text-emerald-600" />
                   ) : (
-                    <Copy className="w-3 h-3" />
+                    <Copy aria-hidden="true" className="w-3 h-3" />
                   )}
                 </button>
               </div>
@@ -748,7 +777,7 @@ function PublicPayContent({
                     "d9a8f237bc8e1a729e7b2354a86fcd23b7e77b69a3b68074697ffec4548d88fa"
                   )
                 }
-                className="mt-1.5 text-[11px] font-semibold text-[#C85228] hover:underline"
+                className={`mt-1.5 rounded px-1 text-[11px] font-semibold text-[#C85228] hover:underline ${FOCUS_RING}`}
               >
                 Simulate Direct Freighter / Testnet Payment (Demo)
               </button>
@@ -764,7 +793,7 @@ function PublicPayContent({
               type="button"
               disabled={isPayingPaystack}
               onClick={handlePaystackPayment}
-              className="bg-[#0BA4DB] hover:bg-[#0992C3] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2"
+              className={`bg-[#0BA4DB] hover:bg-[#0992C3] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2 ${FOCUS_RING}`}
             >
               {isPayingPaystack ? (
                 <>
@@ -784,7 +813,7 @@ function PublicPayContent({
               type="button"
               disabled={isVerifyingStellar || isProcessingStellar || isConnectingFreighter}
               onClick={handlePayWithStellarUSDC}
-              className="bg-[#C85228] hover:bg-[#B0451F] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+              className={`bg-[#C85228] hover:bg-[#B0451F] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer ${FOCUS_RING}`}
             >
               {isProcessingStellar ? (
                 <>

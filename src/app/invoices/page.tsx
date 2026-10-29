@@ -18,6 +18,9 @@ interface ApiInvoice {
 
 const API_BASE = "http://127.0.0.1:8000";
 
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C85228] focus-visible:ring-2 focus-visible:ring-[#C85228]";
+
 function formatFullNaira(val: number): string {
   return `₦${Number(val || 0).toLocaleString("en-NG", {
     minimumFractionDigits: 0,
@@ -28,7 +31,7 @@ function formatFullNaira(val: number): string {
 export default function InvoicesListPage() {
   const router = useRouter();
   const [invoices, setInvoices] = useState<ApiInvoice[]>([]);
-  const [, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
@@ -69,7 +72,9 @@ export default function InvoicesListPage() {
       } catch {
         setInvoices([]);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     }
 
@@ -137,26 +142,75 @@ export default function InvoicesListPage() {
 
         <Link
           href="/invoices/new"
-          className="bg-[#C85228] hover:bg-[#B0451F] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-2xs flex items-center gap-1.5"
+          className={`bg-[#C85228] hover:bg-[#B0451F] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-2xs flex items-center gap-1.5 ${FOCUS_RING}`}
         >
           <img
             src="/icons/plus.svg"
             className="w-4 h-4 transition-transform duration-200 hover:scale-110"
-            alt="Create Invoice"
+            alt=""
           />
           <span>Create Invoice</span>
         </Link>
       </div>
 
-      {/* Main Table or Empty State */}
-      {invoices.length === 0 ? (
+      {/* Main Table, Loading Skeleton, or Empty State */}
+      {loading ? (
+        <div
+          aria-busy="true"
+          className="bg-white border border-[#EAE8E4] rounded-xl p-5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+        >
+          <div className="flex items-center justify-between mb-4 animate-pulse" aria-hidden="true">
+            <div className="h-4 w-24 bg-[#F3F2EE] rounded" />
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-64 bg-[#F3F2EE] rounded-lg" />
+              <div className="h-8 w-20 bg-[#F3F2EE] rounded-lg" />
+              <div className="h-8 w-16 bg-[#F3F2EE] rounded-lg" />
+            </div>
+          </div>
+
+          <div className="bg-[#F5F5F4] px-5 py-2.5 grid grid-cols-12 items-center border border-[#EAE8E4] rounded-lg mb-2 text-xs text-[#8C8985] uppercase tracking-wider font-semibold">
+            <div className="col-span-2">Invoice ID</div>
+            <div className="col-span-3">Client</div>
+            <div className="col-span-2">Amount</div>
+            <div className="col-span-2">Status</div>
+            <div className="col-span-2">Due Date</div>
+            <div className="col-span-1 text-right">Actions</div>
+          </div>
+
+          <div className="divide-y divide-[#F0EFEB] animate-pulse" aria-hidden="true">
+            {[0, 1, 2, 3, 4].map((row) => (
+              <div key={row} className="px-5 py-3.5 grid grid-cols-12 items-center">
+                <div className="col-span-2">
+                  <div className="h-3.5 w-20 bg-[#F3F2EE] rounded" />
+                </div>
+                <div className="col-span-3 pr-4 space-y-1.5">
+                  <div className="h-4 w-36 bg-[#EAE8E4] rounded" />
+                  <div className="h-3 w-24 bg-[#F3F2EE] rounded" />
+                </div>
+                <div className="col-span-2">
+                  <div className="h-4 w-24 bg-[#EAE8E4] rounded" />
+                </div>
+                <div className="col-span-2">
+                  <div className="h-5 w-16 bg-[#F3F2EE] rounded-full" />
+                </div>
+                <div className="col-span-2">
+                  <div className="h-3.5 w-24 bg-[#F3F2EE] rounded" />
+                </div>
+                <div className="col-span-1 flex justify-end">
+                  <div className="h-7 w-7 bg-[#F3F2EE] rounded-lg" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : invoices.length === 0 ? (
         /* Empty State */
         <div className="border-2 border-dashed border-[#E2E0D8] rounded-xl bg-white min-h-[420px] flex flex-col items-center justify-center text-center p-8">
           <div className="w-12 h-12 rounded-xl bg-[#F3F2EE] flex items-center justify-center text-gray-400 mb-3">
             <img
               src="/icons/ellipsis.svg"
               className="w-6 h-6 opacity-40"
-              alt="No invoices"
+              alt=""
             />
           </div>
           <h3 className="font-bold text-base text-gray-900">No invoices yet</h3>
@@ -165,12 +219,12 @@ export default function InvoicesListPage() {
           </p>
           <Link
             href="/invoices/new"
-            className="bg-[#C85228] hover:bg-[#B0451F] text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-2xs flex items-center gap-2"
+            className={`bg-[#C85228] hover:bg-[#B0451F] text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-2xs flex items-center gap-2 ${FOCUS_RING}`}
           >
             <img
               src="/icons/plus.svg"
               className="w-4 h-4"
-              alt="Create Invoice"
+              alt=""
             />
             <span>Create Invoice</span>
           </Link>
@@ -188,37 +242,40 @@ export default function InvoicesListPage() {
                 <img
                   src="/icons/search.svg"
                   className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none transition-transform duration-200 hover:scale-110"
-                  alt="Search"
+                  alt=""
                 />
                 <input
                   type="text"
+                  aria-label="Search invoices by invoice ID or client name"
                   placeholder="Search invoice or client"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#FAF9F6] border border-[#EAE8E4] rounded-lg pl-9 pr-3 py-1.5 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#C85228] transition-colors"
+                  className={`w-full bg-[#FAF9F6] border border-[#EAE8E4] rounded-lg pl-9 pr-3 py-1.5 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#C85228] ${FOCUS_RING} transition-colors`}
                 />
               </div>
 
               <button
                 type="button"
-                className="border border-[#EAE8E4] bg-white hover:bg-[#FAF9F6] text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+                aria-label="Filter invoices"
+                className={`border border-[#EAE8E4] bg-white hover:bg-[#FAF9F6] text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${FOCUS_RING}`}
               >
                 <img
                   src="/icons/filter.svg"
                   className="w-4 h-4 transition-transform duration-200 hover:scale-110"
-                  alt="Filter"
+                  alt=""
                 />
                 <span>Filter</span>
               </button>
 
               <button
                 type="button"
-                className="border border-[#EAE8E4] bg-white hover:bg-[#FAF9F6] text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+                aria-label="Sort invoices"
+                className={`border border-[#EAE8E4] bg-white hover:bg-[#FAF9F6] text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${FOCUS_RING}`}
               >
                 <img
                   src="/icons/sort.svg"
                   className="w-4 h-4 transition-transform duration-200 hover:scale-110"
-                  alt="Sort"
+                  alt=""
                 />
                 <span>Sort</span>
               </button>
@@ -231,8 +288,9 @@ export default function InvoicesListPage() {
               <button
                 key={tab}
                 type="button"
+                aria-pressed={statusFilter === tab}
                 onClick={() => setStatusFilter(tab)}
-                className={`px-3 py-1 rounded-md transition-all ${
+                className={`px-3 py-1 rounded-md transition-all ${FOCUS_RING} ${
                   statusFilter === tab
                     ? "bg-white text-gray-900 font-medium shadow-2xs"
                     : "text-gray-500 hover:text-gray-900"
@@ -260,114 +318,123 @@ export default function InvoicesListPage() {
             </div>
           ) : (
             <div className="divide-y divide-[#F0EFEB]">
-              {filteredInvoices.map((inv) => (
-                <div
-                  key={inv.id}
-                  onClick={() => router.push(`/invoices/${inv.id}`)}
-                  className="px-5 py-3 grid grid-cols-12 items-center hover:bg-[#FAF9F6] cursor-pointer transition-colors text-xs relative"
-                >
-                  {/* Invoice ID */}
-                  <div className="col-span-2 text-sm text-gray-600 font-normal">
-                    {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
-                  </div>
-
-                  {/* Client Name & Service Summary */}
-                  <div className="col-span-3 min-w-0 pr-2">
-                    <p className="text-base font-bold text-gray-900 truncate">
-                      {inv.client_name}
-                    </p>
-                    <p className="text-sm text-gray-600 truncate mt-0.5">
-                      {inv.service_summary || "Design Services"}
-                    </p>
-                  </div>
-
-                  {/* Amount */}
-                  <div className="col-span-2 text-base font-bold text-gray-900">
-                    {formatFullNaira(inv.amount)}
-                  </div>
-
-                  {/* Status */}
-                  <div className="col-span-2">{renderStatusPill(inv.status)}</div>
-
-                  {/* Due Date */}
-                  <div className="col-span-2 text-sm text-gray-600">{inv.due_date}</div>
-
-                  {/* Actions */}
+              {filteredInvoices.map((inv) => {
+                const invoiceCode = inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`;
+                return (
                   <div
-                    className="col-span-1 text-right flex justify-end relative"
-                    data-action-menu
+                    key={inv.id}
+                    onClick={() => router.push(`/invoices/${inv.id}`)}
+                    className="px-5 py-3 grid grid-cols-12 items-center hover:bg-[#FAF9F6] cursor-pointer transition-colors text-xs relative"
                   >
-                    <button
-                      type="button"
-                      aria-label="More options"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveDropdown((prev) => (prev === inv.id ? null : inv.id));
-                      }}
-                      className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                    >
-                      <img
-                        src="/icons/ellipsis.svg"
-                        className="w-4 h-4 transition-transform duration-200 hover:scale-110"
-                        alt="More options"
-                      />
-                    </button>
+                    {/* Invoice ID */}
+                    <div className="col-span-2 text-sm text-gray-600 font-normal">
+                      {invoiceCode}
+                    </div>
 
-                    {/* Absolute Positioned Dropdown */}
-                    {activeDropdown === inv.id && (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="absolute bg-white shadow-lg rounded-xl border border-[#EAE8E4] py-1 z-10 w-32 right-0 mt-2 text-left top-full"
+                    {/* Client Name & Service Summary */}
+                    <div className="col-span-3 min-w-0 pr-2">
+                      <p className="text-base font-bold text-gray-900 truncate">
+                        {inv.client_name}
+                      </p>
+                      <p className="text-sm text-gray-600 truncate mt-0.5">
+                        {inv.service_summary || "Design Services"}
+                      </p>
+                    </div>
+
+                    {/* Amount */}
+                    <div className="col-span-2 text-base font-bold text-gray-900">
+                      {formatFullNaira(inv.amount)}
+                    </div>
+
+                    {/* Status */}
+                    <div className="col-span-2">{renderStatusPill(inv.status)}</div>
+
+                    {/* Due Date */}
+                    <div className="col-span-2 text-sm text-gray-600">{inv.due_date}</div>
+
+                    {/* Actions */}
+                    <div
+                      className="col-span-1 text-right flex justify-end relative"
+                      data-action-menu
+                    >
+                      <button
+                        type="button"
+                        aria-label={`More options for ${invoiceCode}`}
+                        aria-expanded={activeDropdown === inv.id}
+                        aria-haspopup="menu"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveDropdown((prev) => (prev === inv.id ? null : inv.id));
+                        }}
+                        className={`p-2 rounded-lg hover:bg-gray-100 transition-colors ${FOCUS_RING}`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveDropdown(null);
-                            router.push(`/invoices/${inv.id}`);
-                          }}
-                          className="w-full px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"
+                        <img
+                          src="/icons/ellipsis.svg"
+                          className="w-4 h-4 transition-transform duration-200 hover:scale-110"
+                          alt=""
+                        />
+                      </button>
+
+                      {/* Absolute Positioned Dropdown */}
+                      {activeDropdown === inv.id && (
+                        <div
+                          role="menu"
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute bg-white shadow-lg rounded-xl border border-[#EAE8E4] py-1 z-10 w-32 right-0 mt-2 text-left top-full"
                         >
-                          <img
-                            src="/icons/edit.svg"
-                            className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110"
-                            alt="Edit"
-                          />
-                          <span>Edit</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveDropdown(null);
-                          }}
-                          className="w-full px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"
-                        >
-                          <img
-                            src="/icons/copy.svg"
-                            className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110"
-                            alt="Duplicate"
-                          />
-                          <span>Duplicate</span>
-                        </button>
-                        <div className="border-t border-[#EAE8E4] my-1" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveDropdown(null);
-                          }}
-                          className="w-full px-4 py-2 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
-                        >
-                          <img
-                            src="/icons/trash.svg"
-                            className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110"
-                            alt="Delete"
-                          />
-                          <span>Delete</span>
-                        </button>
-                      </div>
-                    )}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setActiveDropdown(null);
+                              router.push(`/invoices/${inv.id}`);
+                            }}
+                            className={`w-full px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors ${FOCUS_RING}`}
+                          >
+                            <img
+                              src="/icons/edit.svg"
+                              className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110"
+                              alt=""
+                            />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setActiveDropdown(null);
+                            }}
+                            className={`w-full px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors ${FOCUS_RING}`}
+                          >
+                            <img
+                              src="/icons/copy.svg"
+                              className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110"
+                              alt=""
+                            />
+                            <span>Duplicate</span>
+                          </button>
+                          <div className="border-t border-[#EAE8E4] my-1" />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setActiveDropdown(null);
+                            }}
+                            className={`w-full px-4 py-2 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors ${FOCUS_RING}`}
+                          >
+                            <img
+                              src="/icons/trash.svg"
+                              className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110"
+                              alt=""
+                            />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -382,12 +449,12 @@ export default function InvoicesListPage() {
                   type="button"
                   disabled
                   aria-label="Previous page"
-                  className="p-1.5 rounded border border-[#EAE8E4] text-gray-300 cursor-not-allowed bg-[#FAF9F6]"
+                  className={`p-1.5 rounded border border-[#EAE8E4] text-gray-300 cursor-not-allowed bg-[#FAF9F6] ${FOCUS_RING}`}
                 >
                   <img
                     src="/icons/chevron-left.svg"
                     className="w-4 h-4 transition-transform duration-200 hover:scale-110 opacity-40"
-                    alt="Previous"
+                    alt=""
                   />
                 </button>
                 <span className="w-7 h-7 rounded border border-[#EAE8E4] bg-[#FAF9F6] text-gray-900 font-semibold flex items-center justify-center text-xs">
@@ -397,12 +464,12 @@ export default function InvoicesListPage() {
                   type="button"
                   disabled
                   aria-label="Next page"
-                  className="p-1.5 rounded border border-[#EAE8E4] text-gray-300 cursor-not-allowed bg-[#FAF9F6]"
+                  className={`p-1.5 rounded border border-[#EAE8E4] text-gray-300 cursor-not-allowed bg-[#FAF9F6] ${FOCUS_RING}`}
                 >
                   <img
                     src="/icons/chevron-right.svg"
                     className="w-4 h-4 transition-transform duration-200 hover:scale-110 opacity-40"
-                    alt="Next"
+                    alt=""
                   />
                 </button>
               </div>
