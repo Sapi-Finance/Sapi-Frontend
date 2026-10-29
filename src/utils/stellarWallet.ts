@@ -7,11 +7,22 @@ import {
   signTransaction,
   signMessage,
 } from "@stellar/freighter-api";
+import {
+  STELLAR_TESTNET_PASSPHRASE,
+  freighterErrorText,
+  interpretWalletConnection,
+  messageForHorizonBody,
+  parseWalletFailure,
+  warningForFreighterNetwork,
+} from "./stellarNotices";
 
-export const STELLAR_TESTNET_PASSPHRASE =
-  "Test SDF Network ; September 2015";
-export const STELLAR_PUBLIC_PASSPHRASE =
-  "Public Global Stellar Network ; September 2015";
+export {
+  STELLAR_TESTNET_PASSPHRASE,
+  STELLAR_PUBLIC_PASSPHRASE,
+  FREIGHTER_TESTNET_WARNING,
+  PAYMENT_SIGNATURE_CANCELLED,
+} from "./stellarNotices";
+
 export const HORIZON_TESTNET_URL = "https://horizon-testnet.stellar.org";
 
 export interface WalletConnectionResult {
@@ -19,6 +30,7 @@ export interface WalletConnectionResult {
   address?: string;
   network?: string;
   error?: string;
+  warning?: string;
 }
 
 export interface PaymentExecutionResult {
@@ -26,6 +38,8 @@ export interface PaymentExecutionResult {
   txHash?: string;
   signerAddress?: string;
   error?: string;
+  cancelled?: boolean;
+  networkMismatch?: boolean;
 }
 
 /**
@@ -63,30 +77,36 @@ export async function connectFreighterWallet(): Promise<WalletConnectionResult> 
   try {
     const access = await requestAccess();
     if (access?.error) {
-      return { connected: false, error: String(access.error) };
+      return {
+        connected: false,
+        error: freighterErrorText(access.error) || "User rejected wallet connection",
+      };
     }
 
     const addrResult = access?.address ? access : await getAddress();
     if (addrResult?.error || !addrResult?.address) {
       return {
         connected: false,
-        error: String(addrResult?.error || "Failed to retrieve wallet address"),
+        error:
+          freighterErrorText(addrResult?.error) || "Failed to retrieve wallet address",
       };
     }
 
-    let networkName = "TESTNET";
+    let network: string | undefined;
+    let networkPassphrase: string | undefined;
     try {
       const net = await getNetwork();
-      if (net?.network) networkName = net.network;
+      if (net?.network) network = net.network;
+      if (net?.networkPassphrase) networkPassphrase = net.networkPassphrase;
     } catch {
-      // ignore
+      // Freighter did not report a network. Do not guess that it is mainnet.
     }
 
-    return {
-      connected: true,
-      address: addrResult.address,
-      network: networkName,
-    };
+    return interpretWalletConnection(
+      addrResult.address,
+      network,
+      networkPassphrase,
+    );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "User rejected wallet connection";
     return {
@@ -119,16 +139,39 @@ export async function submitSignedXdrToHorizon(
       return { success: true, txHash: data.hash };
     }
 
-    const detail =
-      data?.extras?.result_codes?.transaction ||
-      data?.detail ||
-      data?.title ||
-      "Horizon transaction submission failed";
-    return { success: false, error: String(detail) };
+    return {
+      success: false,
+      error: messageForHorizonBody(data) || "Horizon transaction submission failed",
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Network error submitting to Horizon";
     return { success: false, error: msg };
   }
+}
+
+/**
+ * Returns a warning when Freighter is on a network other than Testnet.
+ * An unreadable network is not treated as mainnet.
+ */
+export async function readFreighterTestnetWarning(): Promise<string | null> {
+  try {
+    const net = await getNetwork();
+    return warningForFreighterNetwork({
+      network: net?.network,
+      networkPassphrase: net?.networkPassphrase,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function failureResult(error: unknown): PaymentExecutionResult {
+  const parsed = parseWalletFailure(error);
+  return {
+    success: false,
+    error: parsed.message,
+    cancelled: parsed.cancelled,
+  };
 }
 
 /**
@@ -139,12 +182,17 @@ export async function signAndSubmitStellarPayment(
   networkPassphrase = STELLAR_TESTNET_PASSPHRASE
 ): Promise<PaymentExecutionResult> {
   try {
+    const networkWarning = await readFreighterTestnetWarning();
+    if (networkWarning) {
+      return { success: false, error: networkWarning, networkMismatch: true };
+    }
+
     const signResult = await signTransaction(transactionXdr, {
       networkPassphrase,
     });
 
     if (signResult?.error) {
-      return { success: false, error: String(signResult.error) };
+      return failureResult(signResult.error);
     }
 
     if (!signResult?.signedTxXdr) {
@@ -153,7 +201,7 @@ export async function signAndSubmitStellarPayment(
 
     const submission = await submitSignedXdrToHorizon(signResult.signedTxXdr);
     if (!submission.success || !submission.txHash) {
-      return { success: false, error: submission.error };
+      return failureResult(submission.error);
     }
 
     return {
@@ -162,8 +210,7 @@ export async function signAndSubmitStellarPayment(
       signerAddress: signResult.signerAddress,
     };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to sign or submit transaction";
-    return { success: false, error: msg };
+    return failureResult(err);
   }
 }
 
@@ -184,7 +231,7 @@ export async function signPaymentMemo(
     });
 
     if (signResult?.error) {
-      return { success: false, error: String(signResult.error) };
+      return failureResult(signResult.error);
     }
 
     let txHash = "";
@@ -214,8 +261,7 @@ export async function signPaymentMemo(
       signerAddress: signResult.signerAddress,
     };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "User cancelled memo signing.";
-    return { success: false, error: msg };
+    return failureResult(err);
   }
 }
 

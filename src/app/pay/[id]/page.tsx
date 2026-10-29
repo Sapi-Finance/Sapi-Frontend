@@ -16,10 +16,18 @@ import {
 import {
   checkFreighterInstalled,
   connectFreighterWallet,
+  readFreighterTestnetWarning,
   signAndSubmitStellarPayment,
   signPaymentMemo,
+  FREIGHTER_TESTNET_WARNING,
+  PAYMENT_SIGNATURE_CANCELLED,
   STELLAR_TESTNET_PASSPHRASE,
 } from "@/utils/stellarWallet";
+import {
+  noticeToneForConnection,
+  noticeToneForPayment,
+  type StellarNoticeTone,
+} from "@/utils/stellarNotices";
 
 interface LineItem {
   description: string;
@@ -162,6 +170,7 @@ function PublicPayContent({
   // Stellar Verification State
   const [isVerifyingStellar, setIsVerifyingStellar] = useState(false);
   const [stellarError, setStellarError] = useState<string | null>(null);
+  const [stellarNoticeTone, setStellarNoticeTone] = useState<StellarNoticeTone>("error");
   const [stellarSuccessHash, setStellarSuccessHash] = useState<string | null>(null);
 
   // Stellar / Freighter Wallet State
@@ -173,6 +182,16 @@ function PublicPayContent({
   // Paystack State
   const [isPayingPaystack, setIsPayingPaystack] = useState(false);
   const [paystackSuccess, setPaystackSuccess] = useState(false);
+
+  const clearStellarNotice = () => {
+    setStellarNoticeTone("error");
+    setStellarError(null);
+  };
+
+  const showStellarNotice = (message: string, tone: StellarNoticeTone = "error") => {
+    setStellarNoticeTone(tone);
+    setStellarError(message);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -230,12 +249,12 @@ function PublicPayContent({
   // Handle direct real Stellar settlement with Freighter
   const handlePayWithStellarUSDC = async () => {
     setIsProcessingStellar(true);
-    setStellarError(null);
+    clearStellarNotice();
 
     try {
       const installed = await checkFreighterInstalled();
       if (!installed) {
-        setStellarError(
+        showStellarNotice(
           "Freighter wallet is not installed. Please install the Freighter extension from https://www.freighter.app to complete on-chain settlement."
         );
         setIsProcessingStellar(false);
@@ -247,13 +266,30 @@ function PublicPayContent({
         setIsConnectingFreighter(true);
         const conn = await connectFreighterWallet();
         setIsConnectingFreighter(false);
-        if (!conn.connected || !conn.address) {
-          setStellarError(conn.error || "Wallet connection was rejected.");
+        const connectionTone = noticeToneForConnection(conn);
+        if (connectionTone) {
+          showStellarNotice(
+            conn.warning || conn.error || "Wallet connection was rejected.",
+            connectionTone
+          );
           setIsProcessingStellar(false);
           return;
         }
-        currentAddress = conn.address;
-        setFreighterAddress(conn.address);
+        currentAddress = conn.address || null;
+        if (conn.address) setFreighterAddress(conn.address);
+      }
+
+      if (!currentAddress) {
+        showStellarNotice("Wallet connection was rejected.");
+        setIsProcessingStellar(false);
+        return;
+      }
+
+      const networkWarning = await readFreighterTestnetWarning();
+      if (networkWarning) {
+        showStellarNotice(networkWarning, "warning");
+        setIsProcessingStellar(false);
+        return;
       }
 
       let txHashToSubmit = "";
@@ -274,7 +310,15 @@ function PublicPayContent({
             if (signResult.success && signResult.txHash) {
               txHashToSubmit = signResult.txHash;
             } else {
-              setStellarError(signResult.error || "Failed to sign or submit transaction with Freighter.");
+              showStellarNotice(
+                signResult.error ||
+                  (signResult.cancelled
+                    ? PAYMENT_SIGNATURE_CANCELLED
+                    : signResult.networkMismatch
+                      ? FREIGHTER_TESTNET_WARNING
+                      : "Failed to sign or submit transaction with Freighter."),
+                noticeToneForPayment(signResult)
+              );
               setIsProcessingStellar(false);
               return;
             }
@@ -292,7 +336,13 @@ function PublicPayContent({
           invoice.currency || "USDC"
         );
         if (!memoSignResult.success || !memoSignResult.txHash) {
-          setStellarError(memoSignResult.error || "Payment memo signing cancelled by user.");
+          showStellarNotice(
+            memoSignResult.error ||
+              (memoSignResult.cancelled
+                ? PAYMENT_SIGNATURE_CANCELLED
+                : "Payment memo signing was not completed."),
+            noticeToneForPayment(memoSignResult)
+          );
           setIsProcessingStellar(false);
           return;
         }
@@ -302,7 +352,7 @@ function PublicPayContent({
       await handleVerifyStellar(txHashToSubmit);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "An unexpected error occurred during Stellar payment.";
-      setStellarError(msg);
+      showStellarNotice(msg);
     } finally {
       setIsProcessingStellar(false);
       setIsConnectingFreighter(false);
@@ -312,7 +362,7 @@ function PublicPayContent({
   // Handle Stellar verification
   const handleVerifyStellar = async (customTxHash?: string) => {
     setIsVerifyingStellar(true);
-    setStellarError(null);
+    clearStellarNotice();
 
     try {
       let url = `${API_BASE}/invoices/${invoice.id}/verify-stellar?freelancer_wallet=${encodeURIComponent(
@@ -342,18 +392,18 @@ function PublicPayContent({
             stellar_tx_hash: txHash,
           }));
           setStellarSuccessHash(txHash);
-          setStellarError(null);
+          clearStellarNotice();
         } else {
-          setStellarError(
+          showStellarNotice(
             result.stellar_verification?.message ||
               "No matching transaction found on Stellar Testnet for this memo yet."
           );
         }
       } else {
-        setStellarError("Verification request failed. Please check the backend connection.");
+        showStellarNotice("Verification request failed. Please check the backend connection.");
       }
     } catch {
-      setStellarError("Network error while connecting to Stellar verification API.");
+      showStellarNotice("Network error while connecting to Stellar verification API.");
     } finally {
       setIsVerifyingStellar(false);
     }
@@ -629,11 +679,18 @@ function PublicPayContent({
                 type="button"
                 onClick={async () => {
                   setIsConnectingFreighter(true);
+                  clearStellarNotice();
                   const res = await connectFreighterWallet();
                   setIsConnectingFreighter(false);
-                  if (res.connected && res.address) {
-                    setFreighterAddress(res.address);
+                  const tone = noticeToneForConnection(res);
+                  if (tone) {
+                    showStellarNotice(
+                      res.warning || res.error || "Wallet connection was rejected.",
+                      tone
+                    );
+                    return;
                   }
+                  if (res.address) setFreighterAddress(res.address);
                 }}
                 disabled={isConnectingFreighter}
                 className="inline-flex items-center gap-1 text-[11px] text-[#C85228] font-semibold hover:underline cursor-pointer"
@@ -737,21 +794,39 @@ function PublicPayContent({
 
         {/* Stellar Error Message */}
         {stellarError && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-xs flex items-start gap-2 text-red-700">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+          <div
+            className={`mt-3 p-3 border rounded-lg text-xs flex items-start gap-2 ${
+              stellarNoticeTone === "warning"
+                ? "bg-amber-50 border-amber-200 text-amber-950"
+                : stellarNoticeTone === "cancelled"
+                  ? "bg-[#F7F6F3] border-[#E5E4DF] text-gray-700"
+                  : "bg-red-50 border-red-200 text-red-700"
+            }`}
+          >
+            <AlertCircle
+              className={`w-4 h-4 shrink-0 mt-0.5 ${
+                stellarNoticeTone === "warning"
+                  ? "text-amber-600"
+                  : stellarNoticeTone === "cancelled"
+                    ? "text-gray-500"
+                    : "text-red-500"
+              }`}
+            />
             <div className="flex-1">
               <p className="font-medium">{stellarError}</p>
-              <button
-                type="button"
-                onClick={() =>
-                  handleVerifyStellar(
-                    "d9a8f237bc8e1a729e7b2354a86fcd23b7e77b69a3b68074697ffec4548d88fa"
-                  )
-                }
-                className="mt-1.5 text-[11px] font-semibold text-[#C85228] hover:underline"
-              >
-                Simulate Direct Freighter / Testnet Payment (Demo)
-              </button>
+              {stellarNoticeTone === "error" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleVerifyStellar(
+                      "d9a8f237bc8e1a729e7b2354a86fcd23b7e77b69a3b68074697ffec4548d88fa"
+                    )
+                  }
+                  className="mt-1.5 text-[11px] font-semibold text-[#C85228] hover:underline"
+                >
+                  Simulate Direct Freighter / Testnet Payment (Demo)
+                </button>
+              )}
             </div>
           </div>
         )}
