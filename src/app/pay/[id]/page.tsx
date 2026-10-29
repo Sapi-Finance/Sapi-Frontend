@@ -377,6 +377,14 @@ function PublicPayContent({
     }
   };
 
+  const copyStatusMessage = copiedWallet
+    ? "Freelancer wallet address copied to clipboard"
+    : copiedMemo
+      ? "Required memo copied to clipboard"
+      : copiedAccount
+        ? "Account number copied to clipboard"
+        : "";
+
   const isPaid =
     invoice.status?.toLowerCase() === "paid" ||
     !!stellarSuccessHash ||
@@ -589,13 +597,18 @@ function PublicPayContent({
               <button
                 type="button"
                 onClick={() => copyToClipboard("0123456789", setCopiedAccount)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C85228]"
                 title="Copy account number"
+                aria-label={
+                  copiedAccount
+                    ? "Account number copied"
+                    : "Copy account number"
+                }
               >
                 {copiedAccount ? (
-                  <Check className="w-3 h-3 text-emerald-600" />
+                  <Check className="w-3 h-3 text-emerald-600" aria-hidden="true" />
                 ) : (
-                  <Copy className="w-3 h-3" />
+                  <Copy className="w-3 h-3" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -651,13 +664,18 @@ function PublicPayContent({
                 <button
                   type="button"
                   onClick={() => copyToClipboard(FREELANCER_WALLET, setCopiedWallet)}
-                  className="text-gray-500 hover:text-gray-800"
+                  className="text-gray-500 hover:text-gray-800 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C85228]"
                   title="Copy wallet"
+                  aria-label={
+                    copiedWallet
+                      ? "Freelancer wallet address copied"
+                      : "Copy freelancer wallet address"
+                  }
                 >
                   {copiedWallet ? (
-                    <Check className="w-3 h-3 text-emerald-600" />
+                    <Check className="w-3 h-3 text-emerald-600" aria-hidden="true" />
                   ) : (
-                    <Copy className="w-3 h-3" />
+                    <Copy className="w-3 h-3" aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -677,13 +695,18 @@ function PublicPayContent({
                       setCopiedMemo
                     )
                   }
-                  className="text-gray-500 hover:text-gray-800"
+                  className="text-gray-500 hover:text-gray-800 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C85228]"
                   title="Copy memo"
+                  aria-label={
+                    copiedMemo
+                      ? "Required memo copied"
+                      : "Copy required stellar memo"
+                  }
                 >
                   {copiedMemo ? (
-                    <Check className="w-3 h-3 text-emerald-600" />
+                    <Check className="w-3 h-3 text-emerald-600" aria-hidden="true" />
                   ) : (
-                    <Copy className="w-3 h-3" />
+                    <Copy className="w-3 h-3" aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -756,6 +779,11 @@ function PublicPayContent({
           </div>
         )}
 
+        {/* Screen-reader feedback for copy actions */}
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {copyStatusMessage}
+        </div>
+
         {/* Action Buttons (Visible when not yet paid) */}
         {!isPaid ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
@@ -764,7 +792,7 @@ function PublicPayContent({
               type="button"
               disabled={isPayingPaystack}
               onClick={handlePaystackPayment}
-              className="bg-[#0BA4DB] hover:bg-[#0992C3] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2"
+              className="bg-[#0BA4DB] hover:bg-[#0992C3] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C85228] focus-visible:ring-offset-2"
             >
               {isPayingPaystack ? (
                 <>
@@ -784,7 +812,7 @@ function PublicPayContent({
               type="button"
               disabled={isVerifyingStellar || isProcessingStellar || isConnectingFreighter}
               onClick={handlePayWithStellarUSDC}
-              className="bg-[#C85228] hover:bg-[#B0451F] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
+              className="bg-[#C85228] hover:bg-[#B0451F] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C85228] focus-visible:ring-offset-2"
             >
               {isProcessingStellar ? (
                 <>
