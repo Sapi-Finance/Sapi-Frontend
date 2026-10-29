@@ -11,7 +11,15 @@ import {
   ExternalLink,
   Loader2,
   AlertCircle,
+  Wallet,
 } from "lucide-react";
+import {
+  checkFreighterInstalled,
+  connectFreighterWallet,
+  signAndSubmitStellarPayment,
+  signPaymentMemo,
+  STELLAR_TESTNET_PASSPHRASE,
+} from "@/utils/stellarWallet";
 
 interface LineItem {
   description: string;
@@ -156,6 +164,12 @@ function PublicPayContent({
   const [stellarError, setStellarError] = useState<string | null>(null);
   const [stellarSuccessHash, setStellarSuccessHash] = useState<string | null>(null);
 
+  // Stellar / Freighter Wallet State
+  const [freighterInstalled, setFreighterInstalled] = useState<boolean | null>(null);
+  const [freighterAddress, setFreighterAddress] = useState<string | null>(null);
+  const [isConnectingFreighter, setIsConnectingFreighter] = useState(false);
+  const [isProcessingStellar, setIsProcessingStellar] = useState(false);
+
   // Paystack State
   const [isPayingPaystack, setIsPayingPaystack] = useState(false);
   const [paystackSuccess, setPaystackSuccess] = useState(false);
@@ -206,6 +220,94 @@ function PublicPayContent({
     fetchInvoice();
     return () => controller.abort();
   }, [invoiceId]);
+
+  useEffect(() => {
+    checkFreighterInstalled().then((installed) => {
+      setFreighterInstalled(installed);
+    });
+  }, []);
+
+  // Handle direct real Stellar settlement with Freighter
+  const handlePayWithStellarUSDC = async () => {
+    setIsProcessingStellar(true);
+    setStellarError(null);
+
+    try {
+      const installed = await checkFreighterInstalled();
+      if (!installed) {
+        setStellarError(
+          "Freighter wallet is not installed. Please install the Freighter extension from https://www.freighter.app to complete on-chain settlement."
+        );
+        setIsProcessingStellar(false);
+        return;
+      }
+
+      let currentAddress = freighterAddress;
+      if (!currentAddress) {
+        setIsConnectingFreighter(true);
+        const conn = await connectFreighterWallet();
+        setIsConnectingFreighter(false);
+        if (!conn.connected || !conn.address) {
+          setStellarError(conn.error || "Wallet connection was rejected.");
+          setIsProcessingStellar(false);
+          return;
+        }
+        currentAddress = conn.address;
+        setFreighterAddress(conn.address);
+      }
+
+      let txHashToSubmit = "";
+      try {
+        const buildRes = await fetch(
+          `${API_BASE}/invoices/${invoice.id}/build-stellar-tx?source_wallet=${encodeURIComponent(
+            currentAddress
+          )}`,
+          { method: "POST" }
+        );
+        if (buildRes.ok) {
+          const buildData = await buildRes.json();
+          if (buildData.xdr) {
+            const signResult = await signAndSubmitStellarPayment(
+              buildData.xdr,
+              buildData.network_passphrase || STELLAR_TESTNET_PASSPHRASE
+            );
+            if (signResult.success && signResult.txHash) {
+              txHashToSubmit = signResult.txHash;
+            } else {
+              setStellarError(signResult.error || "Failed to sign or submit transaction with Freighter.");
+              setIsProcessingStellar(false);
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Direct XDR build failed, falling back to Freighter memo signing:", e);
+      }
+
+      if (!txHashToSubmit) {
+        const memoSignResult = await signPaymentMemo(
+          invoice.stellar_memo || `SAPI-${invoice.invoice_number}`,
+          invoice.amount,
+          FREELANCER_WALLET,
+          invoice.currency || "USDC"
+        );
+        if (!memoSignResult.success || !memoSignResult.txHash) {
+          setStellarError(memoSignResult.error || "Payment memo signing cancelled by user.");
+          setIsProcessingStellar(false);
+          return;
+        }
+        txHashToSubmit = memoSignResult.txHash;
+      }
+
+      await handleVerifyStellar(txHashToSubmit);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "An unexpected error occurred during Stellar payment.";
+      setStellarError(msg);
+    } finally {
+      setIsProcessingStellar(false);
+      setIsConnectingFreighter(false);
+    }
+  };
 
   // Handle Stellar verification
   const handleVerifyStellar = async (customTxHash?: string) => {
@@ -507,7 +609,39 @@ function PublicPayContent({
               <Zap className="w-3.5 h-3.5 text-[#C85228]" />
               Stellar Testnet USDC Payment
             </span>
-            <span className="text-[10px] text-gray-400 uppercase font-mono">Instant Settlement</span>
+            {freighterAddress ? (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-[#EAF7EF] text-[#1E8E4E]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#1E8E4E]" />
+                {freighterAddress.slice(0, 4)}...{freighterAddress.slice(-4)} Connected
+              </span>
+            ) : freighterInstalled === false ? (
+              <a
+                href="https://www.freighter.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-[#C85228] hover:underline flex items-center gap-1 font-medium"
+              >
+                <span>Install Freighter</span>
+                <ExternalLink size={11} />
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsConnectingFreighter(true);
+                  const res = await connectFreighterWallet();
+                  setIsConnectingFreighter(false);
+                  if (res.connected && res.address) {
+                    setFreighterAddress(res.address);
+                  }
+                }}
+                disabled={isConnectingFreighter}
+                className="inline-flex items-center gap-1 text-[11px] text-[#C85228] font-semibold hover:underline cursor-pointer"
+              >
+                <Wallet className="w-3 h-3" />
+                <span>{isConnectingFreighter ? "Connecting..." : "Connect Freighter"}</span>
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
@@ -645,14 +779,19 @@ function PublicPayContent({
               )}
             </button>
 
-            {/* Stellar Button */}
+            {/* Stellar Freighter Payment Button */}
             <button
               type="button"
-              disabled={isVerifyingStellar}
-              onClick={() => handleVerifyStellar()}
-              className="bg-[#C85228] hover:bg-[#B0451F] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2"
+              disabled={isVerifyingStellar || isProcessingStellar || isConnectingFreighter}
+              onClick={handlePayWithStellarUSDC}
+              className="bg-[#C85228] hover:bg-[#B0451F] disabled:opacity-60 text-white font-medium py-3 px-4 rounded-lg text-xs transition-colors shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
             >
-              {isVerifyingStellar ? (
+              {isProcessingStellar ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Signing with Freighter...</span>
+                </>
+              ) : isVerifyingStellar ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Verifying on Horizon...</span>
@@ -660,7 +799,7 @@ function PublicPayContent({
               ) : (
                 <>
                   <Zap className="w-4 h-4" />
-                  <span>Pay / Verify On-Chain via Stellar USDC</span>
+                  <span>Pay Invoice with Stellar USDC</span>
                 </>
               )}
             </button>
