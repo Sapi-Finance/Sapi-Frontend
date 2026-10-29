@@ -295,50 +295,91 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     applyThemeToDOM(savedTheme);
   };
 
-  const extractAuthrIdentity = (): { email: string; name: string } | null => {
+  const extractAuthrIdentity = (userPayload?: unknown): { email: string; name: string } | null => {
     try {
       interface AuthrUserPayload {
+        id?: string;
+        sub?: string;
+        userId?: string;
         email?: string;
         name?: string;
         fullName?: string;
+        username?: string;
       }
-      const sdkAny = authr as unknown as {
-        getUser?: () => AuthrUserPayload;
-        getSession?: () => { user?: AuthrUserPayload };
-        user?: AuthrUserPayload;
-      };
-      const u: AuthrUserPayload | undefined =
-        sdkAny.getUser?.() || sdkAny.getSession?.()?.user || sdkAny.user;
+      const candidate =
+        (userPayload as { user?: AuthrUserPayload } | undefined)?.user ||
+        (userPayload as AuthrUserPayload | undefined);
 
-      if (u?.email) {
-        return {
-          email: u.email.toLowerCase().trim(),
-          name: u.name || u.fullName || "",
-        };
+      if (candidate) {
+        const id =
+          candidate.id || candidate.sub || candidate.userId || candidate.username || "user";
+        const name = candidate.name || candidate.fullName || candidate.username || "";
+        const rawEmail = candidate.email;
+        const email =
+          rawEmail && rawEmail.includes("@")
+            ? rawEmail.toLowerCase().trim()
+            : `user_${String(id).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}@authr.local`;
+        return { email, name };
       }
 
+      // 1. Check SDK instance state directly
+      const sessionState = authr.getSession?.();
+      const sdkUser = sessionState?.user;
+      if (sdkUser) {
+        const id = sdkUser.id || sdkUser.username || "user";
+        const name = sdkUser.name || sdkUser.username || "";
+        const rawEmail = sdkUser.email;
+        const email =
+          rawEmail && rawEmail.includes("@")
+            ? rawEmail.toLowerCase().trim()
+            : `user_${String(id).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}@authr.local`;
+        return { email, name };
+      }
+
+      // 2. Check primary SDK persisted session key: authr:session:${clientId}
+      const clientId = process.env.NEXT_PUBLIC_AUTHR_CLIENT_ID || "";
+      const primaryKey = `authr:session:${clientId}`;
+      const primaryStored = typeof window !== "undefined" ? localStorage.getItem(primaryKey) : null;
+      if (primaryStored) {
+        try {
+          const parsed = JSON.parse(primaryStored);
+          const u = parsed.user;
+          if (u) {
+            const id = u.id || u.username || "user";
+            const name = u.name || u.username || "";
+            const rawEmail = u.email;
+            const email =
+              rawEmail && rawEmail.includes("@")
+                ? rawEmail.toLowerCase().trim()
+                : `user_${String(id).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}@authr.local`;
+            return { email, name };
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // 3. Scan localStorage fallback
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i) || "";
         if (k.toLowerCase().includes("authr") && !k.startsWith("sapi_")) {
           const val = localStorage.getItem(k) || "";
-          if (val.includes("@")) {
-            try {
-              const parsed = JSON.parse(val);
-              const foundEmail = parsed?.email || parsed?.user?.email;
-              const foundName =
-                parsed?.name ||
-                parsed?.fullName ||
-                parsed?.user?.name ||
-                parsed?.user?.fullName ||
-                "";
-              if (foundEmail) {
-                return {
-                  email: String(foundEmail).toLowerCase().trim(),
-                  name: String(foundName),
-                };
-              }
-            } catch {
-              // ignore
+          try {
+            const parsed = JSON.parse(val);
+            const u = parsed?.user || parsed;
+            if (u && (u.email || u.id || u.username)) {
+              const id = u.id || u.username || "user";
+              const name = u.name || u.fullName || u.username || "";
+              const rawEmail = u.email;
+              const email =
+                rawEmail && rawEmail.includes("@")
+                  ? String(rawEmail).toLowerCase().trim()
+                  : `user_${String(id).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}@authr.local`;
+              return { email, name };
+            }
+          } catch {
+            if (val.includes("@")) {
+              return { email: val.toLowerCase().trim(), name: "" };
             }
           }
         }
@@ -382,10 +423,50 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener("sapi_profile_updated", handleUpdate);
     window.addEventListener("sapi_theme_updated", handleUpdate);
 
+    // Register official @authrspace/sdk event listeners
+    const unbindAuth = authr.on("authenticated", ({ user }) => {
+      const identity = extractAuthrIdentity(user);
+      if (identity?.email) {
+        finalizeAuthrLogin(identity.email, identity.name);
+      }
+    });
+
+    const unbindClose = authr.on("close", () => {
+      setAuthrOpened(false);
+    });
+
+    const unbindError = authr.on("error", (err) => {
+      console.warn("Authr error:", err);
+      setAuthrOpened(false);
+    });
+
     // Listen for postMessage events from the Authr popup/iframe
     const handleWindowMessage = (event: MessageEvent) => {
       const data = event.data;
       if (data && typeof data === "object") {
+        if (
+          data.type === "AUTH_CLOSE" ||
+          data.type === "AUTHR_MODAL_CLOSED" ||
+          data.type === "authr:modal_close"
+        ) {
+          setAuthrOpened(false);
+          return;
+        }
+
+        if (
+          data.type === "AUTH_SUCCESS" ||
+          data.type === "AUTHR_AUTH_SUCCESS" ||
+          data.type === "authr:auth_success" ||
+          data.type === "authr:success"
+        ) {
+          const userObj = data.payload?.user || data.user || data.payload;
+          const identity = extractAuthrIdentity(userObj);
+          if (identity?.email) {
+            finalizeAuthrLogin(identity.email, identity.name);
+            return;
+          }
+        }
+
         const email =
           data.email ||
           data.user?.email ||
@@ -412,6 +493,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     mediaQuery.addEventListener("change", handleSystemChange);
 
     return () => {
+      unbindAuth();
+      unbindClose();
+      unbindError();
       window.removeEventListener("sapi_profile_updated", handleUpdate);
       window.removeEventListener("sapi_theme_updated", handleUpdate);
       window.removeEventListener("message", handleWindowMessage);
@@ -443,28 +527,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     window.dispatchEvent(new Event("sapi_theme_updated"));
   };
 
-  // Fires authr.signIn() IMMEDIATELY and synchronously so the Authr popup always mounts!
-  const handleLaunchAuthr = () => {
+  // Fires authr.signIn() and handles session resolution + close reset
+  const handleLaunchAuthr = async () => {
     try {
-      const maybePromise = (authr as unknown as { signIn: () => unknown }).signIn();
       setAuthrOpened(true);
+      const maybePromise = (authr as unknown as { signIn: () => unknown }).signIn();
 
-      // If Authr returns a Promise that resolves when the user finishes signing in:
       if (maybePromise && typeof (maybePromise as Promise<unknown>).then === "function") {
-        (maybePromise as Promise<unknown>)
-          .then((res) => {
-            const r = res as
-              | { email?: string; name?: string; user?: { email?: string; name?: string } }
-              | undefined;
-            const resolvedEmail = r?.email || r?.user?.email;
-            const resolvedName = r?.name || r?.user?.name || "";
-            if (resolvedEmail) {
-              finalizeAuthrLogin(resolvedEmail, resolvedName);
-            }
-          })
-          .catch((err) => {
-            console.warn("Authr signIn promise rejected:", err);
-          });
+        const res = await (maybePromise as Promise<unknown>);
+        const identity = extractAuthrIdentity(res);
+        if (identity?.email) {
+          finalizeAuthrLogin(identity.email, identity.name);
+          return;
+        }
       }
 
       // Also poll SDK state in case Authr writes user session to SDK/storage without resolving a promise
@@ -474,10 +549,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         if (identity?.email) {
           finalizeAuthrLogin(identity.email, identity.name);
         }
-      }, 800);
+      }, 600);
     } catch (err) {
       console.error("Failed to launch Authr:", err);
-      setAuthrOpened(true);
+      setAuthrOpened(false);
     }
   };
 
@@ -662,44 +737,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               onClick={handleLaunchAuthr}
-              className="w-full bg-[#C85228] hover:bg-[#B0451F] active:scale-[0.99] text-white font-semibold py-3.5 px-5 rounded-xl transition-all flex items-center justify-between shadow-sm cursor-pointer"
+              disabled={authrOpened}
+              className="w-full bg-[#C85228] hover:bg-[#B0451F] active:scale-[0.99] text-white font-semibold py-3.5 px-5 rounded-xl transition-all flex items-center justify-between shadow-sm cursor-pointer disabled:opacity-80 disabled:cursor-wait"
             >
-              <span>Continue with Authr</span>
-              <ArrowRight size={17} />
+              {authrOpened ? (
+                <>
+                  <span className="flex items-center gap-2">
+                    <Loader2 size={17} className="text-white animate-spin shrink-0" />
+                    <span>Connecting with Authr...</span>
+                  </span>
+                  <span className="text-xs text-white/70 font-normal">Modal open</span>
+                </>
+              ) : (
+                <>
+                  <span>Continue with Authr</span>
+                  <ArrowRight size={17} />
+                </>
+              )}
             </button>
-
-            {/* Only appears after the user clicks Continue with Authr in case the popup is decoupled */}
-            {authrOpened && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const fd = new FormData(e.currentTarget);
-                  const email = String(fd.get("confirmedEmail") || "").trim();
-                  const name = String(fd.get("confirmedName") || "").trim();
-                  if (email) finalizeAuthrLogin(email, name);
-                }}
-                className="mt-6 pt-6 border-t border-[#EAE8E4] space-y-3"
-              >
-                <div className="flex items-center gap-2 text-xs font-medium text-[#686662]">
-                  <Loader2 size={14} className="text-[#C85228] animate-spin shrink-0" />
-                  <span>Authr modal active — enter your Authr email once signed in:</span>
-                </div>
-                <input
-                  name="confirmedEmail"
-                  type="email"
-                  required
-                  placeholder="Your Authr email address..."
-                  defaultValue={extractAuthrIdentity()?.email || ""}
-                  className="w-full bg-white border border-[#E5E4DF] rounded-xl px-3.5 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-[#C85228]"
-                />
-                <button
-                  type="submit"
-                  className="w-full bg-[#181615] hover:bg-[#2A2724] text-white text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer"
-                >
-                  Proceed to Workspace →
-                </button>
-              </form>
-            )}
           </div>
         </div>
       </div>
